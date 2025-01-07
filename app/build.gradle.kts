@@ -36,6 +36,10 @@ android {
     }
     buildFeatures {
         compose = true
+        viewBinding = true
+    }
+    dataBinding {
+        enable = true
     }
 }
 
@@ -64,15 +68,14 @@ dependencies {
 
     // CameraX core library
     implementation (libs.androidx.camera.core.v110beta01)
-
     // CameraX Camera2 extensions
     implementation (libs.androidx.camera.camera2)
-
     // CameraX Lifecycle library
     implementation (libs.androidx.camera.lifecycle.v110beta01)
-
+    implementation (libs.androidx.camera.video)
     // CameraX View class
     implementation (libs.androidx.camera.view.v110beta01)
+    implementation (libs.androidx.camera.extensions.v110beta01)
     //Dexter
     implementation (libs.dexter)
 

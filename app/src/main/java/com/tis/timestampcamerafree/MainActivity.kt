@@ -20,8 +20,6 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
-import android.widget.ImageButton
-import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -31,13 +29,22 @@ import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
+import androidx.camera.video.FallbackStrategy
+import androidx.camera.video.MediaStoreOutputOptions
+import androidx.camera.video.Quality
+import androidx.camera.video.QualitySelector
+import androidx.camera.video.Recorder
+import androidx.camera.video.Recording
+import androidx.camera.video.VideoCapture
+import androidx.camera.video.VideoRecordEvent
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.content.PermissionChecker
 import androidx.lifecycle.LifecycleOwner
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
+import com.google.android.material.tabs.TabLayout
 import com.google.common.util.concurrent.ListenableFuture
 import com.karumi.dexter.Dexter
 import com.karumi.dexter.MultiplePermissionsReport
@@ -45,25 +52,26 @@ import com.karumi.dexter.PermissionToken
 import com.karumi.dexter.listener.DexterError
 import com.karumi.dexter.listener.PermissionRequest
 import com.karumi.dexter.listener.multi.MultiplePermissionsListener
+import com.tis.timestampcamerafree.databinding.MainActivityBinding
 import java.io.File
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 
 class MainActivity : BaseActivity() {
+    private var videoCapture: VideoCapture<Recorder>? = null
+    private var recording: Recording? = null
+    private lateinit var cameraExecutor: ExecutorService
+
     private lateinit var cameraProviderFuture: ListenableFuture<ProcessCameraProvider>
     private lateinit var imageCapture: ImageCapture
     private var camera: Camera? = null
     private var cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
     private var isFlashOn = false
-    private lateinit var cameraPreview: PreviewView
-    private lateinit var btnToggleFlash: ImageButton
-    private lateinit var btnToggleCamera: ImageButton
-    private lateinit var btnCapture: ImageButton
-    private lateinit var tvLocation: TextView
-    private lateinit var imgPreview: ImageView
     private lateinit var outputFile: File
     private val PERMISSION_REQUEST_CODE = 1001
     private var permission = 1
@@ -71,40 +79,44 @@ class MainActivity : BaseActivity() {
     private lateinit var locationDetails: String
     private var latitude: Double = 0.0
     private var longitude: Double = 0.0
+    private lateinit var binding: MainActivityBinding
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.main_activity)
-        cameraPreview = findViewById(R.id.cameraPreview)
-        btnToggleFlash = findViewById(R.id.btnToggleFlash)
-        btnToggleCamera = findViewById(R.id.btnToggleCamera)
-        btnCapture = findViewById(R.id.btnCapture)
-        tvLocation = findViewById(R.id.tvLocation)
-        imgPreview = findViewById(R.id.imgPreview)
-
+        binding = MainActivityBinding.inflate(layoutInflater)
+        cameraExecutor = Executors.newSingleThreadExecutor()
         showPermission()
 
         // Initialize location client
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
-        btnCapture.setOnClickListener {
+        binding.btnCapture.setOnClickListener {
             // Capture photo logic
             capturePhotoWithAddress()
         }
 
-        btnToggleFlash.setOnClickListener {
+        binding.btnToggleFlash.setOnClickListener {
             // Flash toggle logic
             toggleFlash()
         }
 
-        btnToggleCamera.setOnClickListener {
+        binding.btnToggleCamera.setOnClickListener {
             // Switch front/back camera logic
             switchCamera()
         }
 
-        imgPreview.setOnClickListener {
+        binding.imgPreview.setOnClickListener {
             openPhotoInGallery()
         }
+
+        /*binding.tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
+            override fun onTabSelected(tab: TabLayout.Tab?) {
+                // Handle tab selection (e.g., switch modes between Photo and Video)
+            }
+
+            override fun onTabUnselected(tab: TabLayout.Tab?) {}
+            override fun onTabReselected(tab: TabLayout.Tab?) {}
+        })*/
     }
 
     private fun fetchLocation(tvLocation: TextView) {
@@ -160,9 +172,9 @@ class MainActivity : BaseActivity() {
     private fun toggleFlash() {
         if (camera?.cameraInfo?.hasFlashUnit() == true) {
             if (isFlashOn) {
-                btnToggleFlash.setImageResource(R.drawable.baseline_flash_off_24)
+                binding.btnToggleFlash.setImageResource(R.drawable.baseline_flash_off_24)
             } else {
-                btnToggleFlash.setImageResource(R.drawable.baseline_flash_on_24)
+                binding.btnToggleFlash.setImageResource(R.drawable.baseline_flash_on_24)
             }
 
             isFlashOn = !isFlashOn
@@ -185,7 +197,7 @@ class MainActivity : BaseActivity() {
     }
 
     private fun startCamera() {
-        fetchLocation(tvLocation)
+        fetchLocation(binding.tvLocation)
         // Get an instance of ProcessCameraProvider
         cameraProviderFuture = ProcessCameraProvider.getInstance(this)
 
@@ -199,7 +211,8 @@ class MainActivity : BaseActivity() {
                 val preview = Preview.Builder()
                     .build()
                     .also {
-                        it.setSurfaceProvider(cameraPreview.surfaceProvider)  // Set the surface provider for the preview
+                        it.surfaceProvider =
+                            binding.cameraPreview.surfaceProvider  // Set the surface provider for the preview
                     }
 
                 // Create an ImageCapture use case
@@ -207,13 +220,24 @@ class MainActivity : BaseActivity() {
                     .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                     .build()
 
+                val recorder = Recorder.Builder()
+                    .setQualitySelector(
+                        QualitySelector.from(
+                            Quality.HIGHEST,
+                            FallbackStrategy.higherQualityOrLowerThan(Quality.SD)
+                        )
+                    )
+                    .build()
+                videoCapture = VideoCapture.withOutput(recorder)
+
                 // Unbind all previous use cases and bind the new ones to the lifecycle
                 cameraProvider.unbindAll()
                 camera = cameraProvider.bindToLifecycle(
                     this as LifecycleOwner,
                     cameraSelector,
                     preview,
-                    imageCapture
+                    imageCapture,
+                    videoCapture
                 )
             } catch (exc: Exception) {
                 Log.e("CameraX", "Use case binding failed", exc)
@@ -221,9 +245,19 @@ class MainActivity : BaseActivity() {
         }, ContextCompat.getMainExecutor(this))  // Execute the listener on the main thread
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        cameraExecutor.shutdown()
+    }
+
     private fun createFile(): File {
         val storageDir = getExternalFilesDir(Environment.DIRECTORY_PICTURES)
         return File(storageDir, "TimeStamp_${System.currentTimeMillis()}.jpg")
+    }
+
+    private fun createVideoFile(): File {
+        val storageDir = getExternalFilesDir(Environment.DIRECTORY_MOVIES)
+        return File(storageDir, "TimeStamp_${System.currentTimeMillis()}.mp4")
     }
 
     private fun openPhotoInGallery() {
@@ -242,8 +276,13 @@ class MainActivity : BaseActivity() {
     }
 
     companion object {
+        private const val FILENAME_FORMAT = "yyyy-MM-dd-HH-mm-ss-SSS"
         private val REQUIRED_PERMISSIONS =
-            arrayOf(Manifest.permission.CAMERA, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            arrayOf(
+                Manifest.permission.CAMERA,
+                Manifest.permission.RECORD_AUDIO,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
+            )
     }
 
     // This function will check if all permissions are granted
@@ -414,7 +453,7 @@ class MainActivity : BaseActivity() {
                     ).toString()
 
                     // Display the thumbnail in the ImageView
-                    imgPreview.setImageBitmap(mutableBitmap)
+                    binding.imgPreview.setImageBitmap(mutableBitmap)
                 }
 
                 override fun onError(exception: ImageCaptureException) {
@@ -501,4 +540,76 @@ class MainActivity : BaseActivity() {
             }
         return filePath
     }
+
+    private fun captureVideo() {
+        val videoCapture = this.videoCapture ?: return
+
+        val curRecording = recording
+        if (curRecording != null) {
+            // Stop the current recording session.
+            curRecording.stop()
+            recording = null
+            return
+        }
+
+        // create and start a new recording session
+        val name = "TimeStamp_${System.currentTimeMillis()}"
+        val contentValues = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
+                put(MediaStore.Video.Media.RELATIVE_PATH, "DCIM/Camera")
+            }
+        }
+
+        val mediaStoreOutputOptions = MediaStoreOutputOptions
+            .Builder(contentResolver, MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
+            .setContentValues(contentValues)
+            .build()
+
+        recording = videoCapture.output
+            .prepareRecording(this, mediaStoreOutputOptions)
+            .apply {
+                if (PermissionChecker.checkSelfPermission(
+                        this@MainActivity,
+                        Manifest.permission.RECORD_AUDIO
+                    ) ==
+                    PermissionChecker.PERMISSION_GRANTED
+                ) {
+                    withAudioEnabled()
+                }
+            }
+            .start(ContextCompat.getMainExecutor(this)) { recordEvent ->
+                when (recordEvent) {
+                    is VideoRecordEvent.Start -> {
+                        /*viewBinding.videoCaptureButton.apply {
+                            text = getString(R.string.stop_capture)
+                            isEnabled = true
+                        }*/
+                    }
+
+                    is VideoRecordEvent.Finalize -> {
+                        if (!recordEvent.hasError()) {
+                            val msg = "Video capture succeeded: " +
+                                    "${recordEvent.outputResults.outputUri}"
+                            Toast.makeText(baseContext, msg, Toast.LENGTH_SHORT)
+                                .show()
+                            Log.d("TAG", msg)
+                        } else {
+                            recording?.close()
+                            recording = null
+                            Log.e(
+                                "TAG", "Video capture ends with error: " +
+                                        "${recordEvent.error}"
+                            )
+                        }
+                        /*viewBinding.videoCaptureButton.apply {
+                            text = getString(R.string.start_capture)
+                            isEnabled = true
+                        }*/
+                    }
+                }
+            }
+    }
+
 }

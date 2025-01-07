@@ -3,7 +3,9 @@ agp = "8.7.1"
 cameraCore = "1.5.1"
 cameraCoreVersion = "1.1.0-beta01"
 cameraExtensions = "1.5.0"
+cameraExtensionsVersion = "1.1.0-beta01"
 cameraLifecycle = "1.1.0-beta01"
+cameraVideo = "1.4.1"
 cameraView = "1.1.0-beta01"
 kotlin = "2.0.0"
 coreKtx = "1.15.0"
@@ -27,8 +29,10 @@ androidx-camera-camera2 = { module = "androidx.camera:camera-camera2", version.r
 androidx-camera-core = { module = "androidx.camera:camera-core", version.ref = "cameraCore" }
 androidx-camera-core-v110beta01 = { module = "androidx.camera:camera-core", version.ref = "cameraCoreVersion" }
 androidx-camera-extensions = { module = "androidx.camera:camera-extensions", version.ref = "cameraExtensions" }
+androidx-camera-extensions-v110beta01 = { module = "androidx.camera:camera-extensions", version.ref = "cameraExtensionsVersion" }
 androidx-camera-lifecycle = { module = "androidx.camera:camera-lifecycle", version.ref = "cameraCore" }
 androidx-camera-lifecycle-v110beta01 = { module = "androidx.camera:camera-lifecycle", version.ref = "cameraLifecycle" }
+androidx-camera-video = { module = "androidx.camera:camera-video", version.ref = "cameraVideo" }
 androidx-camera-view = { module = "androidx.camera:camera-view", version.ref = "cameraCore" }
 androidx-camera-view-v110beta01 = { module = "androidx.camera:camera-view", version.ref = "cameraView" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
